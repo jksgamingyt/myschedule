@@ -91,7 +91,10 @@ class App {
     // lockHost, not this.root: it is the container built for a full-screen
     // takeover, and writing over this.root again would orphan the others —
     // see the note in the constructor.
-    resumeCalendarHandoff(this.lockHost)
+    resumeCalendarHandoff(this.lockHost, {
+      // The hand-off screen's way back into the app.
+      enterApp: () => { mount(this.lockHost); this.launch(); },
+    })
       .catch(() => false)
       .then((tookOver) => {
         if (tookOver) return;

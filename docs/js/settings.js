@@ -163,7 +163,7 @@ function workerInControl(timeoutMs = 5000) {
  * for a PIN here would strand the export in a window that may not even know
  * the PIN.
  */
-export async function resumeCalendarHandoff(root) {
+export async function resumeCalendarHandoff(root, { enterApp } = {}) {
   const marker = `#${HANDOFF_KEY}=`;
   const hash = location.hash || '';
   if (!hash.startsWith(marker)) return false;
@@ -182,16 +182,49 @@ export async function resumeCalendarHandoff(root) {
 
   if (!text || !text.startsWith('BEGIN:VCALENDAR')) return false;
 
+  // The way out. Calendar's import screen is a system overlay on top of this
+  // page, and when it closes this page is still what is left — so it has to
+  // be somewhere a person can actually leave from. In a Home Screen app there
+  // is no browser chrome at all: no back button, no tabs, no close. A card
+  // with nothing on it strands them until they force-quit and reopen.
+  //
+  // Only offered in the installed app, where this window *is* MySchedule and
+  // shares its storage. In a browser tab the page may be a different storage
+  // partition from the installed app, so booting the app there would show an
+  // empty one — and a browser already has its own way to close the page.
+  const installed = isInstalled();
+  let left = false;
+  const back = () => {
+    left = true;
+    if (enterApp) enterApp();
+    else location.replace(location.pathname + location.search);
+  };
+
+  // Hidden until the feed is actually answerable: a tap before then would hit
+  // the worker's 404 and look like the very failure this route exists to fix.
+  const again = h('a.btn.soft.wide', { href: feedUrl(), style: { marginTop: '12px', display: 'none' } },
+    icon('cal2', 15), 'Show the Calendar screen again');
+
   if (root) {
     mount(root, h('div.screen', h('div.card.raised', { style: { textAlign: 'center' } },
-      h('strong', { text: 'Opening Calendar…' }),
+      h('strong', { text: 'Adding to Calendar…' }),
       h('p.small.muted', { style: { marginTop: '6px' },
-        text: 'Choose Add All to put these on your calendar.' }))));
+        text: 'When the Calendar screen appears, choose Add All. Then come back here.' }),
+      again,
+      installed
+        ? h('button.btn.wide', { type: 'button', style: { marginTop: '8px' }, onclick: back },
+          'Back to MySchedule')
+        : h('p.tiny.faint', { style: { marginTop: '12px' },
+          text: 'All done? Close this page to go back to MySchedule.' }))));
   }
 
   const served = await workerInControl()
     && await writeCalendarFeed(text)
     && await feedRouteWorks();
+
+  // They left before it was ready. Honour that rather than throwing the
+  // Calendar screen up over the app they have already gone back to.
+  if (left) return true;
 
   if (!served) {
     // Nothing to navigate to. Hand over the file rather than sit on a dead
@@ -200,6 +233,7 @@ export async function resumeCalendarHandoff(root) {
     return false;
   }
 
+  again.style.display = '';
   location.href = feedUrl();
   return true;
 }
